@@ -1,0 +1,372 @@
+---
+title: "<center> **Solar by State** <center>"
+author: "<center> An Investigation into Solar Efficiency across the U.S.</center>"
+date: "<center> Liam Patty - 2022 </center>"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+____
+
+### Introductory Information
+<br>
+
+The ever-present threat of climate change looms over our future and the lives of generations to come. Brought on by industrialization and greed, virtually inevitable consequences of global warming are in store for humanity and have begun to show real world effects. Over the next century, global temperatures are predicted to rise by a minimum of 1.4°C, potentially up to 5.6°C, largely as a result of human CO2 emissions (NASA, 2022). Furthermore, projections suggest significant increases in heavy precipitation events, an increased prevalence of extreme heat waves, lower soil moisture, further ocean acidification, increases in the frequency, intensity, and duration of hurricanes, significant global sea level rise, as well as storm surges, higher tides, and more powerful floods in store for the future as a result of such significant temperature shifts (NASA, 2022). 
+
+This future of recurrent and increasingly common potentially catastrophic disaster scenarios will cause undoubtable and untold damages to society, infrastructure, and our way of life. Furthermore, both the human and financial costs of climate change are sure to be extreme. But our very foresight of these problems may offer substantial aid in helping to prevent them, and the IEAs Zero Emissions by 2050 Scenario, which aims to limit temperature rise to 1.5°C, is one plan set forth to prevent further damage (NASA, 2022). To achieve such a goal, humanity has to turn to non fossil-fuel energy such as nuclear fission, which poses an inherent threat of its own, or renewable energy sources. And as such, green energy, dominated primarily by solar, wind, and hydropower, seems like the cleanest and most reliable way of achieving our climate goals- but how much can they really do?
+
+Well, in the current state of the world, there is significant and seemingly continuous growth of investment in and the development of renewables. Global renewable electric capacity is expected to rise by more than 60% from 2020 to 2026, reaching more than 4,800 Gigawatts, which is also the combined current global power capacity of fossil fuels and nuclear power (IEA, 2021). Furthermore, green energy is predicted to account for 95% of global power capacity growth through 2026, with solar photovoltaics accounting for more than half of that increase (IEA, 2021). Furthermore, with the recent unreliability of fossil-fuel prices, fixed-price long term sales of renewable energies are not only cleaner for the planet, but also becoming very economically competitive. However, in order to reach the goals set by the IEA’s Net Zero Emissions by 2050 Scenario, renewable energy additions would need to nearly double their current forecast and considerable further investment would be required to achieve these standards (IEA, 2021). 
+
+<br>
+
+### Key Question and Project Goals
+
+<br>
+This analysis looks at renewable energy statistics, specifically solar power, across U.S. states to determine trends and correlation between a variety of related factors. The sole selection of solar photovoltaics as opposed to wind, hydropower, or geothermal sources is because solar accounts for more than half of renewable energies, making it by far the most significant. Furthermore, it is more applicable on a state-wide scale than any of the other sources, which would require a much more granular focus. I am seeking to answer questions such as:
+
+Which states have the most efficient solar generation? How is this related to natural statistics for that region such as ultraviolet sun exposure? And moreover, in which states would new or further investments in solar be most effective?
+
+___
+<br>
+
+___ 
+
+```{r, include = FALSE}
+
+# Imports
+
+library(tidyverse)
+library(ggplot2)
+library(readxl)
+library(cowplot)
+library(sf)
+library(dplyr)
+
+```
+
+```{r, include = FALSE}
+
+# Reading in generation data by state for each renewable:
+
+generation.df <- read_excel("annual_generation_state.xls")
+
+gen_solar.df <- generation.df %>%
+  filter(`ENERGY SOURCE` == "Solar Thermal and Photovoltaic") %>%
+  filter(STATE != "US-TOTAL" & STATE != "US-Total") %>%
+  filter(`TYPE OF PRODUCER` == "Total Electric Power Industry")
+gen_solar_2020.df <- gen_solar.df %>%
+  filter(YEAR == "2020") %>%
+  select(-c(`ENERGY SOURCE`, `TYPE OF PRODUCER`, `YEAR`))
+
+# Data source: https://www.eia.gov/electricity/data/state/
+```
+
+```{r, include = FALSE}
+
+# Reading in ultraviolet exposure data by state:
+
+UV_2020_county.df <- read_excel("uv-county.xlsx")
+
+UV_2020_state.df <- UV_2020_county.df %>%
+  group_by(STATE_ABR) %>%
+  summarise_at(vars("UV_ Wh/m²"), list(avg_UV = mean)) %>%
+  dplyr::rename(STATE = STATE_ABR)
+
+# Data source: https://gis.cancer.gov/tools/uv-exposure/
+```
+
+```{r, include = FALSE}
+
+# Reading in some solar statistics data by state
+
+solardata.df <- read_excel("solarByState.xlsx")
+
+# Data source: https://www.seia.org/states-map
+
+```
+
+```{r, include = FALSE}
+
+# Reading in energy price data by state
+
+# price is measured in cents per kilowatt hour
+solarprices.df <- read_excel("avgprice_annual.xlsx") %>%
+  filter(Year == 2020) %>%
+  filter(`Industry Sector Category` == "Total Electric Industry") %>%
+  rename(STATE = State, TotalPrice = Total, ResPrice = Residential, ComPrice = Commercial,
+                IndPrice = Industrial) %>%
+  select(-c(`Industry Sector Category`, `Transportation`, `Other`, `Year`)) %>%
+  select(-c(`ResPrice`, `ComPrice`, `IndPrice`))
+
+# Data source: https://www.eia.gov/electricity/data/state/
+
+```
+
+```{r, include = FALSE}
+
+# Reading in state population data:
+
+state_pop.df <- read_excel("nst-est2020.xlsx")
+state_pop2020.df <- state_pop.df %>%
+  select(c(`STATE`, `2020-4`)) %>%
+  rename(`Population` = `2020-4`) %>%
+  subset(STATE != "US" & STATE != "NORTHEAST" & STATE != "MIDWEST" & STATE != "SOUTH" & STATE != "WEST")
+
+# Data source: https://www.census.gov/programs-surveys/popest/technical-documentation/research/evaluation-estimates/2020-evaluation-estimates/2010s-state-total.html
+```
+
+```{r, include = FALSE}
+
+# Merging Datasets
+solar_state = merge(gen_solar_2020.df, UV_2020_state.df, by = "STATE")
+solar_state = merge(solar_state, solarprices.df, by = "STATE")
+solar_state = merge(solar_state, state_pop2020.df, by = "STATE")
+solar_state = merge(solar_state, solardata.df, by = "STATE") 
+
+# Renaming Variables
+solar_state = solar_state %>%
+  rename(gen = `GENERATION (Megawatthours)`) %>%
+  rename(price = `TotalPrice`) %>%
+  rename(uv = avg_UV) %>%
+  rename(pop = Population) %>%
+  rename(pvc = `MW Installed (PVC)`) %>%
+  rename(installs = `Number of Installations`) %>%
+  rename(investment = `Solar Investment (mil)`) %>%
+  rename(growth = `Growth Projection (MW, 5Y)`) %>%
+  rename(statep = `state electricity from solar, %`)
+
+# Adding an efficiency and per capita generation columns for each state
+solar_state = solar_state %>%
+  mutate(eff = gen / pvc) %>%
+  mutate(genPC = gen / pop)
+
+```
+
+
+### Nationwide Visual Comparison:
+<br>
+
+```{r, echo = FALSE, fig.align='center'}
+
+# reading in us map information
+states.df <- read_sf("cb_2018_us_state_500k.shp") %>%
+  rename(`STATE` = `STUSPS`)
+
+# merging map information with the aggregated data
+statesMap <- merge(solar_state, states.df, by = "STATE")
+
+# creating the various maps for a variety of state-level datapoints
+uv_g <- ggplot(statesMap, aes(geometry = geometry)) +
+  geom_sf(aes(fill=uv)) + 
+  scale_fill_gradient("Average UV (Wh/m²)", low = "#FF9900", high = "#FF0000", na.value = NA) +
+  theme_classic() + 
+  theme(axis.line=element_blank(),axis.text.x=element_blank(),
+          axis.text.y=element_blank(),axis.ticks=element_blank(),
+          axis.title.x=element_blank(),
+          axis.title.y=element_blank(),
+          panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
+          panel.grid.minor=element_blank(),plot.background=element_blank(), legend.position = "top")
+
+gen_g <- ggplot(statesMap, aes(geometry = geometry)) +
+  geom_sf(aes(fill=gen)) + 
+  scale_fill_gradient("Annual Generation (MWh)", low = "#75CCF1", high = "#0037AD", na.value = NA) +
+  theme_classic() + 
+  theme(axis.line=element_blank(),axis.text.x=element_blank(),
+          axis.text.y=element_blank(),axis.ticks=element_blank(),
+          axis.title.x=element_blank(),
+          axis.title.y=element_blank(),
+          panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
+          panel.grid.minor=element_blank(),plot.background=element_blank(), legend.position = "top")
+
+pr_g <- ggplot(statesMap, aes(geometry = geometry)) +
+  geom_sf(aes(fill=price)) + 
+  scale_fill_gradient("Energy Prices (cents/KWh)", low = "#C9FFC1", high = "#0E7600", na.value = NA)+
+  theme_classic() + 
+  theme(axis.line=element_blank(),axis.text.x=element_blank(),
+          axis.text.y=element_blank(),axis.ticks=element_blank(),
+          axis.title.x=element_blank(),
+          axis.title.y=element_blank(),
+          panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
+          panel.grid.minor=element_blank(),plot.background=element_blank(), legend.position = "top")
+
+pvc_g <- ggplot(statesMap, aes(geometry = geometry)) +
+  geom_sf(aes(fill=pvc)) + 
+  scale_fill_gradient("Photovoltaic Capacity (MW)", low = "#D1B3F3", high = "#370285", na.value = NA)+
+  theme_classic() + 
+  theme(axis.line=element_blank(),axis.text.x=element_blank(),
+          axis.text.y=element_blank(),axis.ticks=element_blank(),
+          axis.title.x=element_blank(),
+          axis.title.y=element_blank(),
+          panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
+          panel.grid.minor=element_blank(),plot.background=element_blank(), legend.position = "top")
+
+SES_g <- ggplot(statesMap, aes(geometry = geometry)) +
+  geom_sf(aes(fill=statep)) + 
+  scale_fill_gradient("% Electricity from Solar", low = "#F9F2A7", high = "#A59604", na.value = NA)+
+  theme_classic() + 
+  theme(axis.line=element_blank(),axis.text.x=element_blank(),
+          axis.text.y=element_blank(),axis.ticks=element_blank(),
+          axis.title.x=element_blank(),
+          axis.title.y=element_blank(),
+          panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
+          panel.grid.minor=element_blank(),plot.background=element_blank(), legend.position = "top")
+
+GPPVC_g <- ggplot(statesMap, aes(geometry = geometry)) +
+  geom_sf(aes(fill=growth)) + 
+  scale_fill_gradient("5Y Growth Projection (PVC, MW)", low = "#9EFAE3", high = "#017D5D", na.value = NA)+
+  theme_classic() + 
+  theme(axis.line=element_blank(),axis.text.x=element_blank(),
+          axis.text.y=element_blank(),axis.ticks=element_blank(),
+          axis.title.x=element_blank(),
+          axis.title.y=element_blank(),
+          panel.background=element_blank(),panel.border=element_blank(),panel.grid.major=element_blank(),
+          panel.grid.minor=element_blank(),plot.background=element_blank(), legend.position = "top")
+
+# plot the maps in a 3x2 grid
+plot_grid(uv_g, gen_g, pr_g, pvc_g, SES_g, GPPVC_g, ncol = 2)
+
+```
+
+### Analysis
+<br>
+
+```{r, include = FALSE}
+
+# Regression data analysis:
+
+# efficiency vs. average UV
+effUvReg <- summary(lm(eff ~ uv, solar_state))
+# R^2: .4401, p-value: 3.74 * 10^-7, t-statistic: 5.947
+
+# solar energy generation vs. energy prices
+genPriceReg <- summary(lm(gen ~ price, solar_state))
+# R^2: .05532, p-value: .1115, t-statistic: 1.623
+
+# investments in solar vs. solar energy generation
+InvGenReg <- summary(lm(investment ~ gen, solar_state))
+# R^2: .9418, p-value: 2.2*10^-16, t-statistic: 26.993
+
+# percentage of energy supplied by solar vs. solar energy generation per capita
+pGenPCReg <- summary(lm(statep ~ genPC, solar_state))
+# R^2: .1465, p-value: .007912, t-statistic: 2.780
+
+```
+
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE, fig.align='center'}
+
+# Regression Visuals
+
+eff_uv <- ggplot(solar_state) +
+  geom_point(aes(x = eff, y = uv), color = "#FF0000") +
+  geom_smooth(method = "lm", aes(x = eff, y = uv), color = "#FF0000", fill = "#FF9900") +
+  theme_classic() + 
+  labs(x = "Solar Generation Efficiency", y = "Average UV")
+
+gen_price <- ggplot(solar_state) +
+  geom_point(aes(x = gen, y = price), color = "#0E7600") +
+  geom_smooth(method = "lm", aes(x = gen, y = price), color = "#0E7600", fill = "#C9FFC1") +
+  theme_classic() + 
+  labs(x = "Annual Solar Generation", y = "Energy Prices")
+
+inv_gen <- ggplot(solar_state) +
+  geom_point(aes(x = investment, y = gen), color = "#0037AD") +
+  geom_smooth(method = "lm", aes(x = investment, y = gen), color = "#0037AD", fill = "#75CCF1") +
+  theme_classic() + 
+  labs(x = "Solar Investment (millions)", y = "Annual Solar Generation")
+
+statep_genPC <- ggplot(solar_state) +
+  geom_point(aes(x = statep, y = genPC), color = "#A59604") +
+  geom_smooth(method = "lm", aes(x = statep, y = genPC), color = "#A59604", fill = "#F9F2A7") +
+  theme_classic() + 
+  labs(x = "% State Electricity from Solar", y = "Annual Solar Generation per Capita")
+
+plot_grid(eff_uv, inv_gen, ncol = 1)
+
+```
+
+As one would expect, there are distinct and significant correlations between UV exposure and solar plant efficiency as well as between solar investment and annual generation. This information can be extrapolated within the context of this article to assert that states with particularly high UV exposure rates and significant investment in solar development will reap significant benefits from the proposed efficiency and effectiveness of solar cells in those regions. By calculating solar potential scores for each state, I was able to compile a collection of states with significant opportunities for solar development that are largely unrealized. This list consists of: **Illinois, Indiana, New Mexico, Oregon, and South Carolina**. Furthermore, it is also important to consider states with high solar efficiency, implying that further development would be effective, regardless of previous investment or current infrastructure. This list includes: **New Mexico, Nevada, North Carolina, Arizona, Utah, Minnesota, South Carolina, Oregon, Georgia, and California**. Also related is a collection of the top 10 states with the highest ultraviolet exposure ratings: **Arizona, New Mexico, Nevada, Texas, California, Colorado, Florida, Utah, Georgia, and South Carolina**. Furthermore, these findings are consistent with reportings from Choose Energy, an energy data site which claims that California, Texas, North Carolina, Florida, and Arizona are the top 5 states for solar energy farms (Iscrupe, 2022). 
+
+Solar Energy developments can be optimized by more than just location, however, and new innovative approaches to solar offer significant potential for growth in light capture efficiency. One example is the application of perovskite semiconductor research to solar cells, which has since skyrocketed the technology to become one of the most commonly developed solar cell materials (Snaith 2013 & USDE 2022). Other approaches include the implementation of any of a number of GaAs cell types, thin-film technologies, Crystalline SI cells, or other emerging photovoltaics (USDE 2022). Clearly solar energy has much room to grow, both in terms of development but also in the realm of research and development of new, more efficient, and cheaper technologies. Indeed, it offers hope by presenting a very real, safe, and effective application to help combat the climate crisis at hand.
+
+
+___
+
+<br>
+
+### Appendix
+
+___
+
+Graph of unrealized solar potential for states with significant data:
+
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+solar_state %>%
+  filter(pvc > 1000) %>%
+  ggplot() +
+  geom_point(aes(x = STATE, y = uv / investment)) + 
+  labs(y = "solar potential score", x = "state")
+
+```
+
+List of the top 10 states with the highest calculated efficiency rates
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+solar_state %>%
+  filter(pvc > 1000) %>%
+  arrange(desc(eff)) %>%
+  select(STATE, eff) %>%
+  head(., 10)
+
+```
+
+List of the top 10 states with the highest average UV ratings
+```{r, echo = FALSE, warning = FALSE, message = FALSE}
+
+solar_state %>%
+  filter(pvc > 1000) %>%
+  arrange(desc(uv)) %>%
+  select(STATE, uv) %>%
+  head(., 10)
+
+```
+
+Two other interesting visual regressions related to the data at hand
+```{r, echo = FALSE}
+
+plot_grid(gen_price, statep_genPC, ncol = 1)
+
+```
+
+Numerical regression data for all the computed relations
+```{r, echo = FALSE}
+
+effUvReg; genPriceReg; InvGenReg; pGenPCReg
+
+```
+
+___
+
+<br>
+
+### References
+
+___
+
+“The Effects of Climate Change.” NASA, August 26, 2021. https://climate.nasa.gov/effects/.
+
+“Executive Summary – Renewables 2021 – Analysis.” IEA, 2021. https://www.iea.org/reports/renewables-2021/executive-summary. 
+
+Iscrupe, Lisa. “Best and Worst States for Solar Industry Growth: Choose Energy®.” Best and worst states for solar industry growth | Choose Energy®, 2022. https://www.chooseenergy.com/solar-energy/best-and-worst-ranked-states-for-solar-industry-growth/. 
+
+Henry, Snaith J. “Perovskites: The Emergence of a New Era for Low-Cost, High-Efficiency ...” ACS Publications, The Journal of Physical Chemistry Letters, 2013. https://pubs.acs.org/doi/10.1021/jz4020162. 
+
+“Perovskite Solar Cells.” Energy.gov. Solar Energy Technologies Office, n.d, 2022. https://www.energy.gov/eere/solar/perovskite-solar-cells. 
+
+___
+
+<br><br><br>
+
